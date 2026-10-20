@@ -22,6 +22,37 @@ function base64ToArrayBuffer(b64) {
   return bytes.buffer;
 }
 
+/**
+ * Gera um WAV silencioso em memória (1 segundo) para manter a aba do Chrome/iOS
+ * ativa em segundo plano enquanto o cronômetro estiver rodando.
+ */
+function createSilentWavDataUri() {
+  const sampleRate = 8000;
+  const numSamples = sampleRate;
+  const buffer = new ArrayBuffer(44 + numSamples * 2);
+  const view = new DataView(buffer);
+  const writeStr = (offset, str) => {
+    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+  };
+  writeStr(0, 'RIFF');
+  view.setUint32(4, 36 + numSamples * 2, true);
+  writeStr(8, 'WAVE');
+  writeStr(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeStr(36, 'data');
+  view.setUint32(40, numSamples * 2, true);
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return 'data:audio/wav;base64,' + btoa(binary);
+}
+
 class BoxingAudioEngine {
   constructor() {
     this.ctx = null;
@@ -29,10 +60,26 @@ class BoxingAudioEngine {
     this.singleBellBuffer = null;
     this.doubleBellBuffer = null;
     this.whistleBuffer = null;
+    this.keepAliveAudio = null;
+    this.keepAliveOsc = null;
     this.muted = false;
   }
 
   init() {
+    // Ativa o modo 'playback' no iOS 17+ (Chrome e Safari) para tocar mesmo no silencioso e em 2º plano
+    if ('audioSession' in navigator) {
+      try {
+        navigator.audioSession.type = 'playback';
+      } catch (_) {}
+    }
+
+    if (!this.keepAliveAudio) {
+      this.keepAliveAudio = new Audio(createSilentWavDataUri());
+      this.keepAliveAudio.loop = true;
+      this.keepAliveAudio.volume = 0.01;
+      this.keepAliveAudio.setAttribute('playsinline', 'true');
+    }
+
     if (!this.ctx) {
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
       if (AudioCtx) {
@@ -53,6 +100,38 @@ class BoxingAudioEngine {
     }
     if (this.ctx && this.ctx.state === 'suspended') {
       this.ctx.resume();
+    }
+  }
+
+  startBackgroundKeepAlive() {
+    this.init();
+    if (this.keepAliveAudio && this.keepAliveAudio.paused) {
+      this.keepAliveAudio.play().catch(() => {});
+    }
+    if (this.ctx && !this.keepAliveOsc) {
+      try {
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.frequency.setValueAtTime(1, this.ctx.currentTime);
+        gain.gain.setValueAtTime(0.00001, this.ctx.currentTime);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start();
+        this.keepAliveOsc = osc;
+      } catch (_) {}
+    }
+  }
+
+  stopBackgroundKeepAlive() {
+    if (this.keepAliveAudio && !this.keepAliveAudio.paused) {
+      this.keepAliveAudio.pause();
+    }
+    if (this.keepAliveOsc) {
+      try {
+        this.keepAliveOsc.stop();
+        this.keepAliveOsc.disconnect();
+      } catch (_) {}
+      this.keepAliveOsc = null;
     }
   }
 
@@ -675,6 +754,9 @@ class BoxingTimerApp {
       this.resetTimer();
     }
 
+    // Mantém o canal de áudio ativo em 2º plano no Chrome/iOS
+    this.audio.startBackgroundKeepAlive();
+
     if (this.phase === 'IDLE') {
       if (this.config.prepSeconds > 0) {
         this.enterPhase('PREP', this.config.prepSeconds * 1000);
@@ -684,8 +766,14 @@ class BoxingTimerApp {
     }
 
     this.isRunning = true;
-    this.lastFrameTime = performance.now();
+    this.lastFrameTime = Date.now();
     this.requestWakeLock();
+    this.updateMediaSession();
+
+    // Intervalo de segundo plano (continua rodando quando o requestAnimationFrame pausa em 2º plano)
+    if (this.bgIntervalId) clearInterval(this.bgIntervalId);
+    this.bgIntervalId = setInterval(() => this.tick(), 200);
+
     this.syncUI();
     this.tick();
   }
@@ -696,8 +784,27 @@ class BoxingTimerApp {
       cancelAnimationFrame(this.rafId);
       this.rafId = null;
     }
+    if (this.bgIntervalId) {
+      clearInterval(this.bgIntervalId);
+      this.bgIntervalId = null;
+    }
+    this.audio.stopBackgroundKeepAlive();
     this.releaseWakeLock();
     this.syncUI();
+  }
+
+  updateMediaSession() {
+    if ('mediaSession' in navigator && typeof MediaMetadata !== 'undefined') {
+      try {
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title: `Round ${this.currentRound} de ${this.config.totalRounds}`,
+          artist: this.phase === 'REST' ? 'Descanso' : 'BOXTIMER PRO',
+          album: 'Treino de Boxe'
+        });
+        navigator.mediaSession.setActionHandler('play', () => this.startTimer());
+        navigator.mediaSession.setActionHandler('pause', () => this.pauseTimer());
+      } catch (_) {}
+    }
   }
 
   resetTimer() {
@@ -752,6 +859,7 @@ class BoxingTimerApp {
       this.pauseTimer();
     }
 
+    this.updateMediaSession();
     this.renderRoundDots();
   }
 
@@ -773,8 +881,9 @@ class BoxingTimerApp {
   tick() {
     if (!this.isRunning) return;
 
-    const now = performance.now();
-    const delta = now - this.lastFrameTime;
+    const now = Date.now();
+    const delta = Math.max(0, now - this.lastFrameTime);
+    if (delta === 0) return;
     this.lastFrameTime = now;
 
     this.remainingMs = Math.max(0, this.remainingMs - delta);
@@ -810,7 +919,8 @@ class BoxingTimerApp {
       this.syncUI();
     }
 
-    if (this.isRunning) {
+    if (this.isRunning && document.visibilityState === 'visible') {
+      if (this.rafId) cancelAnimationFrame(this.rafId);
       this.rafId = requestAnimationFrame(() => this.tick());
     }
   }
