@@ -1,0 +1,20 @@
+{
+  "name": "BOXTIMER PRO - Timer de Boxe",
+  "short_name": "BoxTimer",
+  "description": "Timer de Boxe profissional de alto contraste com campainha Web Audio API e modo offline completo.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#090b10",
+  "theme_color": "#090b10",
+  "categories": ["fitness", "sports", "health"],
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "192x192 512x512 any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

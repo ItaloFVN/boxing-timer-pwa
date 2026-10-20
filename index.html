@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>BOXTIMER PRO — Timer de Boxe</title>
+  <meta name="description" content="Timer de Boxe profissional de alta visibilidade com Web Audio API e suporte offline PWA." />
+
+  <!-- PWA & iOS Safari Meta Tags -->
+  <link rel="manifest" href="./manifest.json" />
+  <meta name="theme-color" id="themeColorMeta" content="#090b10" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="BoxTimer" />
+  <link rel="apple-touch-icon" href="./icon.svg" />
+  <link rel="icon" type="image/svg+xml" href="./icon.svg" />
+
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body class="state-idle">
+  <!-- Flash overlay for visual cue on transitions -->
+  <div id="flashOverlay" class="flash-overlay" aria-hidden="true"></div>
+
+  <main class="app-shell">
+    <!-- Top Bar -->
+    <header class="top-bar">
+      <div class="brand">
+        <span class="brand-dot" id="statusDot"></span>
+        <span class="brand-title">BOXTIMER <small>PRO</small></span>
+      </div>
+
+      <div class="top-actions">
+        <button type="button" id="muteBtn" class="icon-btn" aria-label="Alternar som" title="Som Ativo">
+          <svg id="soundOnIcon" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+            <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+            <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
+          </svg>
+          <svg id="soundOffIcon" class="hidden" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+            <line x1="23" y1="9" x2="17" y2="15"></line>
+            <line x1="17" y1="9" x2="23" y2="15"></line>
+          </svg>
+        </button>
+
+        <button type="button" id="openSettingsBtn" class="settings-trigger-btn" aria-label="Abrir configurações">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          </svg>
+          <span>AJUSTES</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Center Timer Display -->
+    <section class="timer-stage" aria-live="polite">
+      <div class="status-header">
+        <div id="phaseBadge" class="phase-badge">PRONTO PARA LUTAR</div>
+        <div id="roundDisplay" class="round-counter">ROUND 1 DE 5</div>
+        <div id="roundDots" class="round-dots" aria-hidden="true"></div>
+      </div>
+
+      <div class="clock-wrapper">
+        <div id="timeDisplay" class="time-display" role="timer" aria-label="Tempo restante">03:00</div>
+      </div>
+
+      <!-- Progress bar & Summary -->
+      <div class="stage-footer">
+        <div class="progress-track" aria-hidden="true">
+          <div id="progressBar" class="progress-fill"></div>
+        </div>
+
+        <button type="button" id="summaryPill" class="summary-pill" title="Toque para configurar">
+          <span id="summaryRound">🥊 03:00</span>
+          <span class="summary-sep">•</span>
+          <span id="summaryRest">🧊 01:00</span>
+          <span class="summary-sep">•</span>
+          <span id="summaryTotal">🔄 5 Rounds</span>
+          <span class="summary-sep" id="summaryWarnSep">•</span>
+          <span id="summaryWarn">⚡ 10s</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- Giant Tactile Controls -->
+    <footer class="controls-dock">
+      <button type="button" id="resetBtn" class="control-btn btn-reset" aria-label="Reiniciar timer">
+        <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="1 4 1 10 7 10"></polyline>
+          <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+        </svg>
+        <span>RESET</span>
+      </button>
+
+      <button type="button" id="startPauseBtn" class="control-btn btn-primary" aria-label="Iniciar ou pausar">
+        <svg id="playIcon" viewBox="0 0 24 24" width="32" height="32" fill="currentColor">
+          <polygon points="6 4 20 12 6 20 6 4"></polygon>
+        </svg>
+        <svg id="pauseIcon" class="hidden" viewBox="0 0 24 24" width="32" height="32" fill="currentColor">
+          <rect x="5" y="4" width="5" height="16" rx="1.5"></rect>
+          <rect x="14" y="4" width="5" height="16" rx="1.5"></rect>
+        </svg>
+        <span id="startPauseLabel">START</span>
+      </button>
+
+      <button type="button" id="skipBtn" class="control-btn btn-skip" aria-label="Avançar etapa" title="Pular para próxima etapa">
+        <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="5 4 15 12 5 20 5 4"></polygon>
+          <line x1="19" y1="5" x2="19" y2="19"></line>
+        </svg>
+        <span>AVANÇAR</span>
+      </button>
+    </footer>
+  </main>
+
+  <!-- Settings Modal Dialog (Modern HTML <dialog closedby="any"> + JS fallback for Safari) -->
+  <dialog id="settingsDialog" class="settings-dialog" closedby="any" aria-labelledby="settingsTitle">
+    <div class="dialog-content">
+      <header class="dialog-header">
+        <h2 id="settingsTitle">CONFIGURAÇÕES DE TREINO</h2>
+        <button type="button" id="closeSettingsBtn" class="close-dialog-btn" aria-label="Fechar configurações">✕</button>
+      </header>
+
+      <!-- Quick Presets -->
+      <div class="presets-section">
+        <span class="section-label">PRESETS RÁPIDOS</span>
+        <div class="preset-grid">
+          <button type="button" class="preset-chip" data-round="180" data-rest="60" data-rounds="3" data-prep="5">
+            <strong>3 Rounds</strong>
+            <small>3:00 / 1:00</small>
+          </button>
+          <button type="button" class="preset-chip" data-round="180" data-rest="60" data-rounds="5" data-prep="5">
+            <strong>5 Rounds</strong>
+            <small>3:00 / 1:00</small>
+          </button>
+          <button type="button" class="preset-chip" data-round="180" data-rest="60" data-rounds="12" data-prep="5">
+            <strong>Pro 12 Rd</strong>
+            <small>3:00 / 1:00</small>
+          </button>
+          <button type="button" class="preset-chip" data-round="120" data-rest="30" data-rounds="6" data-prep="5">
+            <strong>Saco 6 Rd</strong>
+            <small>2:00 / 0:30</small>
+          </button>
+        </div>
+      </div>
+
+      <!-- Adjustable Parameters -->
+      <div class="settings-list">
+        <!-- Round Duration -->
+        <div class="setting-row">
+          <div class="setting-info">
+            <span class="setting-name">Tempo de Round</span>
+            <span class="setting-sub">Duração do combate ativo</span>
+          </div>
+          <div class="stepper">
+            <button type="button" class="step-btn" data-action="round-minus" aria-label="Diminuir tempo de round">−</button>
+            <output id="cfgRoundValue" class="step-value">03:00</output>
+            <button type="button" class="step-btn" data-action="round-plus" aria-label="Aumentar tempo de round">+</button>
+          </div>
+        </div>
+
+        <!-- Rest Duration -->
+        <div class="setting-row">
+          <div class="setting-info">
+            <span class="setting-name">Tempo de Descanso</span>
+            <span class="setting-sub">Intervalo entre rounds</span>
+          </div>
+          <div class="stepper">
+            <button type="button" class="step-btn" data-action="rest-minus" aria-label="Diminuir tempo de descanso">−</button>
+            <output id="cfgRestValue" class="step-value">01:00</output>
+            <button type="button" class="step-btn" data-action="rest-plus" aria-label="Aumentar tempo de descanso">+</button>
+          </div>
+        </div>
+
+        <!-- Total Rounds -->
+        <div class="setting-row">
+          <div class="setting-info">
+            <span class="setting-name">Número de Rounds</span>
+            <span class="setting-sub">Total de assaltos do treino</span>
+          </div>
+          <div class="stepper">
+            <button type="button" class="step-btn" data-action="rounds-minus" aria-label="Diminuir número de rounds">−</button>
+            <output id="cfgRoundsValue" class="step-value">5</output>
+            <button type="button" class="step-btn" data-action="rounds-plus" aria-label="Aumentar número de rounds">+</button>
+          </div>
+        </div>
+
+        <!-- Prep Duration -->
+        <div class="setting-row">
+          <div class="setting-info">
+            <span class="setting-name">Contagem de Preparo</span>
+            <span class="setting-sub">Tempo antes do 1º round</span>
+          </div>
+          <div class="stepper">
+            <button type="button" class="step-btn" data-action="prep-minus" aria-label="Diminuir tempo de preparo">−</button>
+            <output id="cfgPrepValue" class="step-value">05s</output>
+            <button type="button" class="step-btn" data-action="prep-plus" aria-label="Aumentar tempo de preparo">+</button>
+          </div>
+        </div>
+
+        <!-- 10-Second Warning Toggle -->
+        <label class="setting-row toggle-row" for="cfgWarnToggle">
+          <div class="setting-info">
+            <span class="setting-name">Aviso de 10 Segundos</span>
+            <span class="setting-sub">Tela amarela + sinal sonoro (Clapper)</span>
+          </div>
+          <input type="checkbox" id="cfgWarnToggle" class="toggle-input" checked />
+          <span class="toggle-track" aria-hidden="true"></span>
+        </label>
+      </div>
+
+      <!-- Sound Test & Save Actions -->
+      <div class="dialog-actions">
+        <div class="sound-test-bar">
+          <button type="button" id="testBellBtn" class="test-sound-btn">🔔 Testar Gongo</button>
+          <button type="button" id="testWarnBtn" class="test-sound-btn">🪵 Testar 10s</button>
+        </div>
+        <button type="button" id="saveSettingsBtn" class="save-btn">APLICAR E REINICIAR</button>
+      </div>
+    </div>
+  </dialog>
+
+  <script src="./app.js"></script>
+</body>
+</html>
