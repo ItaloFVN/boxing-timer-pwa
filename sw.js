@@ -1,4 +1,4 @@
-const CACHE_NAME = 'boxtimer-pro-v3';
+const CACHE_NAME = 'boxtimer-pro-v4';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
