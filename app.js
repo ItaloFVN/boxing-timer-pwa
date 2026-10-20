@@ -40,41 +40,84 @@ class BoxingAudioEngine {
 
   _strikeBell(startTime) {
     const ctx = this.ctx;
-    // Frequências parciais inarmônicas que simulam o bronze de um gongo de ringue real
-    const partials = [
-      { freq: 587.33, amp: 0.55, decay: 1.75, type: 'sine' },     // Fundamental (D5)
-      { freq: 1178.5, amp: 0.38, decay: 1.35, type: 'triangle' }, // 2ª parcial brilhante
-      { freq: 1568.0, amp: 0.28, decay: 0.95, type: 'sine' },     // Quinta metálica
-      { freq: 2145.0, amp: 0.22, decay: 0.65, type: 'sine' },     // Ressonância de borda
-      { freq: 2860.0, amp: 0.15, decay: 0.35, type: 'square' },   // Ataque metálico agudo
-      { freq: 3620.0, amp: 0.08, decay: 0.18, type: 'sawtooth' }  // Impacto do martelo
-    ];
 
     const masterGain = ctx.createGain();
-    masterGain.gain.setValueAtTime(0.85, startTime);
+    masterGain.gain.setValueAtTime(0.95, startTime);
     masterGain.connect(ctx.destination);
 
-    partials.forEach((p) => {
+    // 1. Impacto físico do martelo de aço no bronze (transiente percussivo de 35ms)
+    const bufferSize = Math.floor(ctx.sampleRate * 0.045);
+    const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+    const data = noiseBuffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.008));
+    }
+    const noise = ctx.createBufferSource();
+    noise.buffer = noiseBuffer;
+
+    const impactFilter = ctx.createBiquadFilter();
+    impactFilter.type = 'bandpass';
+    impactFilter.frequency.setValueAtTime(3400, startTime);
+    impactFilter.Q.setValueAtTime(1.8, startTime);
+
+    const impactGain = ctx.createGain();
+    impactGain.gain.setValueAtTime(0.9, startTime);
+    impactGain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.04);
+
+    noise.connect(impactFilter);
+    impactFilter.connect(impactGain);
+    impactGain.connect(masterGain);
+    noise.start(startTime);
+
+    // 2. Modulação FM inicial ("clang" metálico do ataque da campainha de ringue)
+    const fmMod = ctx.createOscillator();
+    const fmModGain = ctx.createGain();
+    fmMod.type = 'sine';
+    fmMod.frequency.setValueAtTime(1123, startTime);
+    fmModGain.gain.setValueAtTime(420, startTime);
+    fmModGain.gain.exponentialRampToValueAtTime(0.1, startTime + 0.18);
+    fmMod.connect(fmModGain);
+    fmMod.start(startTime);
+    fmMod.stop(startTime + 0.2);
+
+    // 3. Modos acústicos reais de um gongo/campainha de bronze de boxe (com batimento acústico / shimmer)
+    // Pares levemente desafinados (+4.5Hz / +7Hz) criam a oscilação metálica característica do bronze vibrando
+    const bellModes = [
+      { freq: 784.0,  amp: 0.48, decay: 2.35, fm: true },  // Fundamental do sino de bronze (G5)
+      { freq: 788.4,  amp: 0.34, decay: 2.15, fm: false }, // Par de batimento acústico (shimmer)
+      { freq: 1568.0, amp: 0.36, decay: 1.65, fm: true },  // Modo 2:0 (oitava brilhante)
+      { freq: 1574.8, amp: 0.24, decay: 1.45, fm: false }, // Batimento do modo superior
+      { freq: 2161.5, amp: 0.28, decay: 1.05, fm: true },  // Modo inarmônico 2.756 (timbre de campainha)
+      { freq: 3026.0, amp: 0.20, decay: 0.65, fm: false }, // Modo 3.86 (brilho metálico)
+      { freq: 4061.0, amp: 0.14, decay: 0.35, fm: false }, // Modo 5.18 (ataque da borda)
+      { freq: 5280.0, amp: 0.09, decay: 0.16, fm: false }  // Harmônico agudo do impacto
+    ];
+
+    bellModes.forEach((mode) => {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
 
-      osc.type = p.type;
-      osc.frequency.setValueAtTime(p.freq, startTime);
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(mode.freq, startTime);
+      if (mode.fm) {
+        fmModGain.connect(osc.frequency);
+      }
 
       gain.gain.setValueAtTime(0.0001, startTime);
-      gain.gain.linearRampToValueAtTime(p.amp, startTime + 0.006);
-      gain.gain.exponentialRampToValueAtTime(0.0001, startTime + p.decay);
+      gain.gain.linearRampToValueAtTime(mode.amp, startTime + 0.003);
+      gain.gain.exponentialRampToValueAtTime(mode.amp * 0.35, startTime + 0.12);
+      gain.gain.exponentialRampToValueAtTime(0.0001, startTime + mode.decay);
 
       osc.connect(gain);
       gain.connect(masterGain);
 
       osc.start(startTime);
-      osc.stop(startTime + p.decay + 0.05);
+      osc.stop(startTime + mode.decay + 0.05);
     });
   }
 
   /**
-   * Toca o aviso tradicional dos últimos 10 segundos (3 batidas de madeira/clapper + bip de alerta)
+   * Toca um apito esportivo realista (com modulação de bolinha/trinado e sopro) para os últimos 10 segundos
    */
   playTenSecondWarning() {
     if (this.muted) return;
@@ -82,34 +125,81 @@ class BoxingAudioEngine {
     if (!this.ctx) return;
 
     const now = this.ctx.currentTime;
-    const intervals = [0, 0.13, 0.26];
+    // Dois sopros de apito ("Fiu-Fiiiu!") típicos de aviso de 10 segundos no treino
+    this._blowWhistle(now, 0.16);
+    this._blowWhistle(now + 0.22, 0.36);
+  }
 
-    intervals.forEach((offset) => {
-      const t = now + offset;
-      // Síntese de Woodblock / Clapper de ringue
-      const osc = this.ctx.createOscillator();
-      const filter = this.ctx.createBiquadFilter();
-      const gain = this.ctx.createGain();
+  _blowWhistle(startTime, duration) {
+    const ctx = this.ctx;
 
-      osc.type = 'triangle';
-      osc.frequency.setValueAtTime(920, t);
-      osc.frequency.exponentialRampToValueAtTime(380, t + 0.065);
+    const masterGain = ctx.createGain();
+    masterGain.gain.setValueAtTime(0.0001, startTime);
+    masterGain.gain.linearRampToValueAtTime(0.75, startTime + 0.018);
+    masterGain.gain.setValueAtTime(0.75, startTime + Math.max(0.02, duration - 0.04));
+    masterGain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
+    masterGain.connect(ctx.destination);
 
-      filter.type = 'bandpass';
-      filter.frequency.setValueAtTime(1100, t);
-      filter.Q.setValueAtTime(3.5, t);
+    // LFO que simula a bolinha de cortiça girando dentro do apito (~30 Hz de trinado)
+    const peaLfo = ctx.createOscillator();
+    const peaFreqGain = ctx.createGain();
+    const peaAmpGain = ctx.createGain();
 
-      gain.gain.setValueAtTime(0.001, t);
-      gain.gain.linearRampToValueAtTime(0.85, t + 0.004);
-      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.085);
+    peaLfo.type = 'sine';
+    peaLfo.frequency.setValueAtTime(30, startTime);
+    peaFreqGain.gain.setValueAtTime(65, startTime); // Variação de frequência do trinado
+    peaAmpGain.gain.setValueAtTime(0.22, startTime);
 
-      osc.connect(filter);
-      filter.connect(gain);
-      gain.connect(this.ctx.destination);
+    peaLfo.connect(peaFreqGain);
+    peaLfo.connect(peaAmpGain);
+    peaAmpGain.connect(masterGain.gain);
 
-      osc.start(t);
-      osc.stop(t + 0.09);
+    // Duas câmaras ressonantes de um apito esportivo (ex: ~2820 Hz e ~2960 Hz)
+    const freqs = [2820, 2965];
+    freqs.forEach((baseFreq, idx) => {
+      const osc = ctx.createOscillator();
+      const oscGain = ctx.createGain();
+
+      osc.type = 'sine';
+      // Leve subida de afinação no ataque do sopro
+      osc.frequency.setValueAtTime(baseFreq * 0.96, startTime);
+      osc.frequency.exponentialRampToValueAtTime(baseFreq, startTime + 0.025);
+      peaFreqGain.connect(osc.frequency);
+
+      oscGain.gain.setValueAtTime(idx === 0 ? 0.55 : 0.38, startTime);
+      osc.connect(oscGain);
+      oscGain.connect(masterGain);
+
+      osc.start(startTime);
+      osc.stop(startTime + duration + 0.02);
     });
+
+    // Ruído de sopro/ar passando pelo bocal do apito
+    const airBufferSize = Math.floor(ctx.sampleRate * duration);
+    const airBuffer = ctx.createBuffer(1, airBufferSize, ctx.sampleRate);
+    const airData = airBuffer.getChannelData(0);
+    for (let i = 0; i < airBufferSize; i++) {
+      airData[i] = Math.random() * 2 - 1;
+    }
+    const airSource = ctx.createBufferSource();
+    airSource.buffer = airBuffer;
+
+    const airFilter = ctx.createBiquadFilter();
+    airFilter.type = 'bandpass';
+    airFilter.frequency.setValueAtTime(2900, startTime);
+    airFilter.Q.setValueAtTime(5.5, startTime);
+
+    const airGain = ctx.createGain();
+    airGain.gain.setValueAtTime(0.18, startTime);
+
+    airSource.connect(airFilter);
+    airFilter.connect(airGain);
+    airGain.connect(masterGain);
+
+    peaLfo.start(startTime);
+    peaLfo.stop(startTime + duration + 0.02);
+    airSource.start(startTime);
+    airSource.stop(startTime + duration);
   }
 
   /**
